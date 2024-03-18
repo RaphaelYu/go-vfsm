@@ -1,4 +1,4 @@
-module go-vfsm
+module github.com/RaphaelYu/go-vfsm
 
 go 1.21.3
 
