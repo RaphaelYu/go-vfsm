@@ -2,6 +2,7 @@ package vfsm
 
 import (
 	"errors"
+	"io"
 
 	"github.com/Knetic/govaluate"
 )
@@ -12,14 +13,30 @@ type (
 		cond func(T, map[string]any) (bool, error)
 	}
 
+	ExceptionTransition[T StatefulObjectIf] struct {
+		next string
+		cond func(T, map[string]any, error, string) (bool, error)
+	}
+
 	State[T StatefulObjectIf] struct {
 		enter           func(T) error
 		id              string
-		onGood          []func(T, map[string]any) (string, error)
-		exceptionHandle func(T, map[string]any, error, string) (string, error)
+		onGood          []*Transition[T]
+		exceptionHandle *ExceptionTransition[T]
 		exit            func(T) error
 	}
 )
+
+func (tr ExceptionTransition[T]) Transit(self T, params map[string]any, e error, st string) (string, error) {
+	hit, err := tr.cond(self, params, e, st)
+	if err != nil {
+		return "", err
+	}
+	if hit {
+		return tr.next, err
+	}
+	return "", err
+}
 
 func (tr Transition[T]) Transit(self T, params map[string]any) (string, error) {
 	hit, err := tr.cond(self, params)
@@ -38,10 +55,18 @@ func BindHitThen[T StatefulObjectIf](cond func(T, map[string]any) (bool, error),
 	}
 }
 
+func (st *State[T]) Resolves(t ...*Transition[T]) {
+	st.onGood = t
+
+}
+
 func (st *State[T]) Next(obj T, params map[string]any) (next string, err error) {
+	if len(st.onGood) == 0 {
+		return "", io.EOF
+	}
 	for _, f := range st.onGood {
-		if next, err = f(obj, params); err != nil {
-			next, err = st.exceptionHandle(obj, params, err, st.id)
+		if next, err = f.Transit(obj, params); err != nil {
+			next, err = st.exceptionHandle.Transit(obj, params, err, st.id)
 			return
 
 		}
